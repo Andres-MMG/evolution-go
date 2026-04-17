@@ -3,9 +3,6 @@ services:
     image: evoapicloud/evolution-go:latest
     restart: unless-stopped
     environment:
-      # Coolify auto-generates FQDN and exposes port 4000
-      SERVICE_FQDN_EVOLUTIONGO_4000: ""
-
       # Server
       SERVER_PORT: "4000"
       CLIENT_NAME: "barberias"
@@ -63,7 +60,7 @@ services:
     expose:
       - "4000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/server/ok"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -79,16 +76,11 @@ services:
       POSTGRES_USER: "${SERVICE_USER_POSTGRES}"
       POSTGRES_PASSWORD: "${SERVICE_PASSWORD_POSTGRES}"
       POSTGRES_DB: postgres
-    entrypoint: >
-      sh -c "
-        docker-entrypoint.sh postgres &
-        until pg_isready -U $$POSTGRES_USER -d postgres -h 127.0.0.1; do sleep 1; done;
-        psql -U $$POSTGRES_USER -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='evogo_auth'\" | grep -q 1 || psql -U $$POSTGRES_USER -d postgres -c 'CREATE DATABASE evogo_auth';
-        psql -U $$POSTGRES_USER -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='evogo_users'\" | grep -q 1 || psql -U $$POSTGRES_USER -d postgres -c 'CREATE DATABASE evogo_users';
-        wait
-      "
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    configs:
+      - source: postgres-init-db
+        target: /docker-entrypoint-initdb.d/01-init-db.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres -h 127.0.0.1"]
       interval: 5s
@@ -103,3 +95,9 @@ volumes:
     driver: local
   postgres_data:
     driver: local
+
+configs:
+  postgres-init-db:
+    content: |
+      CREATE DATABASE evogo_auth;
+      CREATE DATABASE evogo_users;
