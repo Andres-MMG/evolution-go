@@ -82,9 +82,9 @@ services:
     entrypoint: >
       sh -c "
         docker-entrypoint.sh postgres &
-        until pg_isready -U $$POSTGRES_USER -h 127.0.0.1; do sleep 1; done;
-        psql -U $$POSTGRES_USER -tc \"SELECT 1 FROM pg_database WHERE datname='evogo_auth'\" | grep -q 1 || psql -U $$POSTGRES_USER -c 'CREATE DATABASE evogo_auth';
-        psql -U $$POSTGRES_USER -tc \"SELECT 1 FROM pg_database WHERE datname='evogo_users'\" | grep -q 1 || psql -U $$POSTGRES_USER -c 'CREATE DATABASE evogo_users';
+        until pg_isready -U $$POSTGRES_USER -d postgres -h 127.0.0.1; do sleep 1; done;
+        psql -U $$POSTGRES_USER -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='evogo_auth'\" | grep -q 1 || psql -U $$POSTGRES_USER -d postgres -c 'CREATE DATABASE evogo_auth';
+        psql -U $$POSTGRES_USER -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='evogo_users'\" | grep -q 1 || psql -U $$POSTGRES_USER -d postgres -c 'CREATE DATABASE evogo_users';
         wait
       "
     volumes:
