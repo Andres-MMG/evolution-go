@@ -16,7 +16,10 @@ services:
       DATABASE_SAVE_MESSAGES: "false"
 
       # Logs
-      WADEBUG: "INFO"
+      # WADEBUG controls whatsmeow client verbosity. Use "ERROR" in production
+      # to avoid filling logs with [Client INFO] sendIQ / receiveResponse noise.
+      # Set to "DEBUG" only when troubleshooting WhatsApp protocol issues.
+      WADEBUG: "ERROR"
       LOGTYPE: "console"
       LOG_DIRECTORY: "/app/logs"
       LOG_MAX_SIZE: "100"
@@ -33,7 +36,10 @@ services:
 
       # Events (optional — fill later if needed)
       WEBHOOK_URL: ""
-      AMQP_URL: ""
+      # AMQP_URL: dummy value to silence "RabbitMQ connection string is empty"
+      # errors when RabbitMQ is not in use. Real AMQP traffic stays disabled
+      # because AMQP_GLOBAL_ENABLED is false and no instance subscribes to it.
+      AMQP_URL: "amqp://disabled:disabled@127.0.0.1:5672/"
       AMQP_GLOBAL_ENABLED: "false"
       NATS_URL: ""
       NATS_GLOBAL_ENABLED: "false"
