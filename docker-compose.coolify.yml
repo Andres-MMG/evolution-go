@@ -1,6 +1,8 @@
 services:
   evolution-go:
-    image: evoapicloud/evolution-go:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       # Server
