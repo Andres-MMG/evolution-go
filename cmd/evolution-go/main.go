@@ -62,6 +62,7 @@ import (
 	minio_storage "github.com/evolution-foundation/evolution-go/pkg/storage/minio"
 	user_handler "github.com/evolution-foundation/evolution-go/pkg/user/handler"
 	user_service "github.com/evolution-foundation/evolution-go/pkg/user/service"
+	"github.com/evolution-foundation/evolution-go/pkg/whatsmeow/lifecycle"
 	whatsmeow_service "github.com/evolution-foundation/evolution-go/pkg/whatsmeow/service"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -83,8 +84,7 @@ func init() {
 }
 
 func setupRouter(db *gorm.DB, authDB *sql.DB, sqliteDB *sql.DB, config *config.Config, conn *amqp.Connection, exPath string, runtimeCtx *core.RuntimeContext) *gin.Engine {
-	killChannel := make(map[string](chan bool))
-	clientPointer := make(map[string]*whatsmeow.Client)
+	clientPointer := &lifecycle.Registry[*whatsmeow.Client]{}
 
 	loggerWrapper := logger_wrapper.NewLoggerManager(config)
 
@@ -168,7 +168,6 @@ func setupRouter(db *gorm.DB, authDB *sql.DB, sqliteDB *sql.DB, config *config.C
 		message_repository.NewMessageRepository(db),
 		labelRepository,
 		config,
-		killChannel,
 		clientPointer,
 		rabbitmqProducer,
 		webhookProducer,
@@ -181,7 +180,6 @@ func setupRouter(db *gorm.DB, authDB *sql.DB, sqliteDB *sql.DB, config *config.C
 	)
 	instanceService := instance_service.NewInstanceService(
 		instanceRepository,
-		killChannel,
 		clientPointer,
 		whatsmeowService,
 		config,
