@@ -8,11 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"image/png"
-	"io"
 	"math/rand"
-	"net/http"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +18,7 @@ import (
 	"golang.org/x/image/webp"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/gomessguii/logger"
 	_ "github.com/lib/pq"
 	"github.com/patrickmn/go-cache"
 	"github.com/skip2/go-qrcode"
@@ -72,12 +70,6 @@ type WhatsmeowService interface {
 	PasskeyCeremonyStore() *ceremony.Store
 	SubmitPasskeyResponse(instanceId string, resp *types.WebAuthnResponse) error
 	ConfirmPasskey(instanceId string) error
-}
-
-type clientVersion struct {
-	Major int
-	Minor int
-	Patch int
 }
 
 type whatsmeowService struct {
@@ -389,8 +381,6 @@ func (w whatsmeowService) runClient(cd *ClientData, run *lifecycle.Run) (cleanup
 		}
 	}
 
-	var version clientVersion
-
 	platformID, ok := waCompanionReg.DeviceProps_PlatformType_value[strings.ToUpper("chrome")]
 	if ok {
 		store.DeviceProps.PlatformType = waCompanionReg.DeviceProps_PlatformType(platformID).Enum()
@@ -401,34 +391,6 @@ func (w whatsmeowService) runClient(cd *ClientData, run *lifecycle.Run) (cleanup
 
 	store.DeviceProps.Os = &cd.Instance.OsName
 	store.DeviceProps.RequireFullSync = proto.Bool(true)
-
-	if w.config.WhatsappVersionMajor != 0 && w.config.WhatsappVersionMinor != 0 && w.config.WhatsappVersionPatch != 0 {
-		w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Setting whatsapp version to %d.%d.%d", cd.Instance.Id, w.config.WhatsappVersionMajor, w.config.WhatsappVersionMinor, w.config.WhatsappVersionPatch)
-		version.Major = w.config.WhatsappVersionMajor
-		if err == nil {
-			store.DeviceProps.Version.Primary = proto.Uint32(uint32(version.Major))
-		}
-		version.Minor = w.config.WhatsappVersionMinor
-		if err == nil {
-			store.DeviceProps.Version.Secondary = proto.Uint32(uint32(version.Minor))
-		}
-		version.Patch = w.config.WhatsappVersionPatch
-		if err == nil {
-			store.DeviceProps.Version.Tertiary = proto.Uint32(uint32(version.Patch))
-		}
-	} else {
-		// Try to fetch version from WhatsApp Web
-		webVersion, err := fetchWhatsAppWebVersion(run.Context())
-		if err != nil {
-			w.loggerWrapper.GetLogger(cd.Instance.Id).LogError("[%s] Failed to fetch WhatsApp Web version: %v", cd.Instance.Id, err)
-		} else {
-			w.loggerWrapper.GetLogger(cd.Instance.Id).LogInfo("[%s] Setting whatsapp version from web to %d.%d.%d", cd.Instance.Id, webVersion.Major, webVersion.Minor, webVersion.Patch)
-			version = *webVersion
-			store.DeviceProps.Version.Primary = proto.Uint32(uint32(version.Major))
-			store.DeviceProps.Version.Secondary = proto.Uint32(uint32(version.Minor))
-			store.DeviceProps.Version.Tertiary = proto.Uint32(uint32(version.Patch))
-		}
-	}
 
 	// 🔒 FIX: Sempre criar logger, mesmo que WaDebug esteja vazio
 	// Usar "INFO" como nível mínimo para garantir que logs importantes apareçam
@@ -2591,81 +2553,6 @@ func (w *whatsmeowService) SendToGlobalQueues(eventType string, payload []byte, 
 	}
 }
 
-var (
-	cachedWebVersion   *clientVersion
-	cachedWebVersionAt time.Time
-	cachedWebVersionMu sync.Mutex
-	webVersionCacheTTL = 1 * time.Hour
-)
-
-func fetchWhatsAppWebVersion(ctx context.Context) (*clientVersion, error) {
-	cachedWebVersionMu.Lock()
-	defer cachedWebVersionMu.Unlock()
-
-	if cachedWebVersion != nil && time.Since(cachedWebVersionAt) < webVersionCacheTTL {
-		return cachedWebVersion, nil
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://web.whatsapp.com/sw.js", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch WhatsApp Web version: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	content := string(body)
-
-	// Múltiplas estratégias para encontrar client_revision
-	patterns := []string{
-		`"client_revision":\s*(\d+)`,              // Formato direto
-		`\\"client_revision\\":\s*(\d+)`,          // Formato escaped
-		`client_revision\\?\\"?:[\s]*(\d+)`,       // Formato mais flexível
-		`["']client_revision["'][\s]*:[\s]*(\d+)`, // Com aspas variadas
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(content)
-
-		if len(matches) >= 2 {
-			clientRevision, err := strconv.Atoi(matches[1])
-			if err != nil {
-				continue // Tenta próximo padrão
-			}
-
-			// Log qual padrão funcionou
-			if clientRevision > 0 {
-				cachedWebVersion = &clientVersion{
-					Major: 2,
-					Minor: 3000,
-					Patch: clientRevision,
-				}
-				cachedWebVersionAt = time.Now()
-				return cachedWebVersion, nil
-			}
-		}
-	}
-
-	// Se chegou aqui, nenhum padrão funcionou - log do conteúdo para debug
-	// Mostra apenas uma parte para não logar muito
-	previewLength := 500
-	if len(content) > previewLength {
-		content = content[:previewLength] + "..."
-	}
-
-	return nil, fmt.Errorf("could not find client revision in the fetched content. Content preview: %s", content)
-}
-
 func (w whatsmeowService) UpdateInstanceSettings(instanceId string) error {
 	w.loggerWrapper.GetLogger(instanceId).LogInfo("[%s] Updating instance settings in runtime", instanceId)
 
@@ -2770,6 +2657,16 @@ func NewWhatsmeowService(
 	natsProducer producer_interfaces.Producer,
 	loggerWrapper *logger_wrapper.LoggerManager,
 ) WhatsmeowService {
+	version, source, versionErr := processWhatsAppVersion.initialize(clientVersion{
+		Major: config.WhatsappVersionMajor,
+		Minor: config.WhatsappVersionMinor,
+		Patch: config.WhatsappVersionPatch,
+	}, fetchWhatsAppWebVersion)
+	if versionErr != nil {
+		logger.LogWarn("[WhatsApp] Version lookup failed; retaining embedded handshake version %s: %v", version.String(), versionErr)
+	}
+	logger.LogInfo("[WhatsApp] Handshake version initialized: %s (source: %s; changes require restart)", version.String(), source)
+
 	// Inicializar PollService de forma segura
 	pollSvc := poll_service.NewPollService(authDB, loggerWrapper)
 
